@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>GreenScanner · Chat (Rasa)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0f172a; --panel:#111827; --bot:#1f2937; --user:#22c55e; --text:#e5e7eb; --muted:#94a3b8;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:linear-gradient(180deg,var(--bg),#0b1224);
+      color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;
+      min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
+    }
+    .app{
+      width:100%; max-width:860px; background:rgba(17,24,39,.82); backdrop-filter: blur(6px);
+      border:1px solid rgba(255,255,255,.06); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; min-height:70vh;
+    }
+    header{
+      display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.06)
+    }
+    header h1{font-size:16px; margin:0}
+    header .dot{width:10px;height:10px;background:#22c55e;border-radius:999px;box-shadow:0 0 10px #22c55e}
+    .chat{flex:1; padding:14px; overflow:auto; display:flex; flex-direction:column; gap:10px}
+    .msg{max-width:min(78%,560px); padding:10px 12px; border-radius:14px; line-height:1.45; white-space:pre-wrap; word-wrap:break-word}
+    .msg.user{align-self:flex-end; background:var(--user); color:#06250e; border-bottom-right-radius:6px}
+    .msg.bot{align-self:flex-start; background:var(--bot); color:#e5e7eb; border-bottom-left-radius:6px}
+    .sys{align-self:center; font-size:12px; color:var(--muted); margin:6px 0}
+    .row{display:flex; gap:8px; padding:12px; border-top:1px solid rgba(255,255,255,.06); background:rgba(0,0,0,.15)}
+    .row input{flex:1; background:rgba(255,255,255,.08); color:var(--text); border:none; outline:none; padding:12px 14px; border-radius:12px; font-size:15px}
+    .row button{background:#22c55e; color:#06250e; font-weight:700; border:none; padding:0 18px; border-radius:12px; cursor:pointer}
+    .row button:disabled{opacity:.6; cursor:not-allowed}
+    .typing{display:inline-flex; gap:4px; align-items:center}
+    .dot1,.dot2,.dot3{width:6px;height:6px;border-radius:50%;background:#cbd5e1;opacity:.6;animation:blink 1.2s infinite ease-in-out}
+    .dot2{animation-delay:.2s}.dot3{animation-delay:.4s}
+    @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+    .buttons{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px}
+    .buttons button{background:transparent; color:#c7f9cc; border:1px solid rgba(255,255,255,.2); padding:6px 10px; border-radius:999px; font-size:12px; cursor:pointer}
+    img.msg-image{max-width:260px; border-radius:10px; display:block; margin-top:6px}
+    @media (max-width:600px){
+      .msg{max-width:88%}
+      header h1{font-size:15px}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="dot"></div>
+        <div>
+          <h1>GreenScanner · Asistente de Reciclaje</h1>
+          <div style="font-size:12px;color:#9ca3af">Conectado</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#9ca3af" id="endpoint-label"></div>
+    </header>
+
+    <div id="chat" class="chat"></div>
+
+    <div class="row">
+      <input id="msg" placeholder="Escribe tu pregunta… (Enter para enviar)" autocomplete="off" />
+      <button id="send">Enviar</button>
+    </div>
+  </div>
+
+  <script>
+    // === 1) DÓNDE PONER LA URL DE RASA ===
+    // Cambia esta URL por tu endpoint público: 
+    //   - Local:   http://localhost:5005/webhooks/rest/webhook
+    //   - Render:  https://TU-RASA.onrender.com/webhooks/rest/webhook
+    // También puedes pasar ?api=https://... en la URL del navegador.
+    const RASA_URL = new URLSearchParams(location.search).get('api') 
+      || 'http://localhost:5005/webhooks/rest/webhook';
+
+    // Muestra endpoint arriba
+    document.getElementById('endpoint-label').textContent = RASA_URL.replace(/^https?:\/\//,'');
+
+    // ID estable por pestaña
+    const senderId = localStorage.getItem('ecobot_sender') || (() => {
+      const id = 'user_' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem('ecobot_sender', id);
+      return id;
+    })();
+
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('msg');
+    const btn = document.getElementById('send');
+
+    function addMsg(text, who='bot'){
+      const div = document.createElement('div');
+      div.className = 'msg ' + (who === 'user' ? 'user' : 'bot');
+      div.innerHTML = text;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+      return div;
+    }
+    function addImage(src){
+      const bubble = document.createElement('div');
+      bubble.className = 'msg bot';
+      const img = document.createElement('img');
+      img.src = src; img.alt = 'imagen'; img.className = 'msg-image';
+      bubble.appendChild(img);
+      chat.appendChild(bubble);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    function addButtons(buttons){
+      const cont = document.createElement('div');
+      cont.className = 'buttons';
+      buttons.forEach(b=>{
+        const el = document.createElement('button');
+        el.textContent = b.title || b.payload || 'Opción';
+        el.onclick = () => { send(b.payload || b.title); cont.remove(); };
+        cont.appendChild(el);
+      });
+      const wrap = document.createElement('div');
+      wrap.className = 'msg bot';
+      wrap.appendChild(cont);
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    function addTyping(){
+      const wrap = document.createElement('div');
+      wrap.className = 'msg bot';
+      wrap.innerHTML = `<span class="typing"><span class="dot1"></span><span class="dot2"></span><span class="dot3"></span></span>`;
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+      return wrap;
+    }
+    function addSystem(text){
+      const d = document.createElement('div');
+      d.className = 'sys';
+      d.textContent = text;
+      chat.appendChild(d);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    // Mensaje de bienvenida
+    addMsg('¡Hola! Soy EcoBot 🌱. Pregúntame por canecas (blanca/verde/negra) o clasifica un residuo.', 'bot');
+
+    async function callRasa(text){
+      const res = await fetch(RASA_URL, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sender: senderId, message: text })
+      });
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.json(); // array de mensajes {text,image,buttons,...}
+    }
+
+    async function send(text){
+      if(!text || !text.trim()) return;
+      addMsg(text, 'user');
+      input.value = ''; input.focus();
+      btn.disabled = true; input.disabled = true;
+      const typing = addTyping();
+
+      try{
+        const data = await callRasa(text);
+        typing.remove();
+
+        if(!Array.isArray(data) || data.length === 0){
+          addSystem('…');
+          return;
+        }
+
+        data.forEach(msg=>{
+          if(msg.text) addMsg(msg.text, 'bot');
+          if(msg.image) addImage(msg.image);
+          if(Array.isArray(msg.buttons) && msg.buttons.length) addButtons(msg.buttons);
+          // Si usas msg.custom, procésalo aquí
+        });
+      }catch(err){
+        typing.remove();
+        addSystem('No pude contactar el backend. ¿Está Rasa corriendo con --enable-api y CORS?');
+      }finally{
+        btn.disabled = false; input.disabled = false;
+      }
+    }
+
+    btn.addEventListener('click', ()=> send(input.value));
+    input.addEventListener('keydown', e=>{
+      if(e.key === 'Enter' && !e.shiftKey){
+        e.preventDefault();
+        send(input.value);
+      }
+    });
+  </script>
+</body>
+</html>
