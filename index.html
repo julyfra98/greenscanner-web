@@ -73,7 +73,7 @@
     //   - Render:  https://TU-RASA.onrender.com/webhooks/rest/webhook
     // También puedes pasar ?api=https://... en la URL del navegador.
     const RASA_URL = new URLSearchParams(location.search).get('api') 
-      || 'http://localhost:5005/webhooks/rest/webhook';
+      || 'https://greenscanner-actions.onrender.com/webhooks/rest/webhook';
 
     // Muestra endpoint arriba
     document.getElementById('endpoint-label').textContent = RASA_URL.replace(/^https?:\/\//,'');
